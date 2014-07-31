@@ -1,6 +1,9 @@
 from datetime import date
 import datetime
 import re
+import numpy as np
+import matplotlib.pyplot as plt
+
 
 def GetScore(pe1, pe5d1, dy1, pe2, pe5d2, dy2):
     InvestmentGrade=[]
@@ -64,7 +67,8 @@ class Data(object):
         self.dividend=[]
         self.investment=[]
         self.interest=8
-        self.regular=1
+        self.regular=0
+        self.regularIncrease=0
         self.tradingFrequency=1
         with open(filename, "r") as f:       
             for line in f:
@@ -80,6 +84,41 @@ class Data(object):
                     self.dividend.append(float(info[4])*float(info[5]))
                     count=count+1
         f.close()
+
+    def plotIndexWithPeHighlight(self, peHigh, peLow, peMid, name):
+        indexHigh=[]
+        dateHigh=[]
+        indexLow=[]
+        dateLow=[]
+        indexMid=[]
+        dateMid=[]
+        for i in range(len(self.date)):
+            if self.pe[i] <= peLow:
+                indexLow.append(self.nifty[i])
+                dateLow.append(self.date[i])
+            elif self.pe[i] <= peMid:
+                indexMid.append(self.nifty[i])
+                dateMid.append(self.date[i])
+            elif self.pe[i] >= peHigh:
+                indexHigh.append(self.nifty[i])
+                dateHigh.append(self.date[i])
+        plt.plot(self.date, self.nifty, 'orange')
+        plt.plot(dateHigh, indexHigh, 'ro')
+        plt.plot(dateMid, indexMid, 'bo')
+        plt.plot(dateLow, indexLow, 'go')
+        plt.savefig(name, format="png")
+
+
+    def createEarningsArray(self):
+        self.earnings=[]
+        for i in range(len(self.date)):
+            self.earnings.append(self.nifty[i]/self.pe[i])
+
+    def createDividendArray(self):
+        self.effectiveDividend=[]
+        for i in range(len(self.date)):
+            self.effectiveDividend.append(self.nifty[i]*self.dy[i])
+    
 
 # 50d translates to 35 trading days
     def CreateFiftyDayPE(self):
@@ -133,7 +172,8 @@ class Data(object):
 
             for i in range(self.tradingFrequency-1):
                 start+=datetime.timedelta(days=365.25/self.tradingFrequency)
-                self.TradingDays.append(self.takeClosest(start))
+                if start <= max(self.date) and start>=min(self.date):
+                    self.TradingDays.append(self.takeClosest(start))
         
 #        self.TradingDays=[self.takeClosest(date(i, 1, 1)) for i in range(minyear.year, maxyear.year+1)]
         return self.TradingDays
@@ -211,15 +251,11 @@ class Data(object):
                 self.AnnualReturn.append(100*(self.Net[count]/self.Net[count-1]-1))
                 tax=0
                 self.investment.append(self.regular)
-                
-                    
-                
-#            print m, prevDate, nifty[0], prevnifty[0], pe[0], divy[0], k, equity, fixedincome, divi, self.Net[count], self.Equity[count], self.FixedIncome[count], self.AnnualReturn[count], tax               
-            
+                print m, prevDate, nifty[0], prevnifty[0], pe[0], divy[0], k, equity, fixedincome, divi, self.Net[count], self.Equity[count], self.FixedIncome[count], self.AnnualReturn[count], tax
             prevDate=m
             count=count+1
         delta=self.TradingDays[count-1]-self.TradingDays[0]
-        self.returns=((self.Net[count-1]/self.Net[0])**(1/(float(delta.days)/365.25)) -1 )*100 
+        self.returns=((self.Net[count-1]/self.Net[0])**(1/(float(delta.days)/365.25)) -1 )*100
         self.stddev=self.std_dev(self.AnnualReturn[1::])
         return [self.returns, self.avreturn, self.stddevreturn]
 
@@ -234,7 +270,7 @@ class Data(object):
                 delta=self.TradingDays[len(self.TradingDays)-1]-self.TradingDays[i]
                 inc1+=self.investment[i]*((1+r1*0.01)**((float(delta.days))/365.25))
                 inc2+=self.investment[i]*(1+r2*0.01)**(float(delta.days)/365.25)
- #               print self.TradingDays[i], self.investment[i], self.Net[i], delta.days/365.25, inc1, inc2
+#                print self.TradingDays[i], self.investment[i], self.Net[i], delta.days/365.25, inc1, inc2
             r0=r1+(self.Net[len(self.TradingDays)-1]-inc1)*(r2-r1)/(inc2-inc1)
             error=abs(1-r0/r1)
 #            print inc1, inc2, r0, r1, r2, error, (self.Net[len(self.TradingDays)-1])
@@ -245,8 +281,40 @@ class Data(object):
                 r1=r0
         return(r0)
 
-        
-            
+
+
+    def investUnderPe(self, criticalpe):
+        self.regular=1
+        self.equity=[0]*len(self.date)
+        self.investment=[0]*len(self.date)
+        self.equity[0]=0;
+        for m in range(1,len(self.date)):
+            pe=self.pe[m]
+            self.equity[m]=self.equity[m-1]/self.nifty[m-1]*self.nifty[m] if m>0 else 0
+            self.investment[m]=self.regular if pe<=criticalpe else 0
+            self.equity[m]=self.equity[m]+self.regular if pe<=criticalpe else self.equity[m]
+        #            print m, self.equity[m], self.investment[m], sum(self.investment)
+        self.TradingDays=self.date
+        self.Net=self.equity
+        print self.CalculateEffectiveReturn()
+    
+    
+    def plotVsDate(self, string):
+        if string=='index':
+            plt.plot(self.date, self.nifty)
+        elif string=='pe':
+            plt.plot(self.date, self.pe)
+        elif string=='dy':
+            plt.plot(self.date, self.dy)
+        elif string=='earnings':
+            plt.plot(self.date, self.earnings)
+        elif string=='dividend':
+            plt.plot(self.date, self.effectiveDividend)
+        else:
+            return
+        plt.ylabel(string)
+        plt.show()
+
 
     def DynamicAllocationVer2(self, DataObject2, frequency):
         capital=1
@@ -296,16 +364,20 @@ class Data(object):
                 self.investment.append(capital)
             else:
                 equity=self.Equity[count-1]*float(nifty[0])/float(prevnifty[0])
-                divi=self.Equity[count-1]*(1+divy[0]/100)**float(float(delta.days)/365)-self.Equity[count-1]
-                fixedincome=self.FixedIncome[count-1]*(1+self.interest*0.01)**float(float(delta.days)/365)
+                divi=self.Equity[count-1]*(1+divy[0]/100)**float(float(delta.days)/365.25)-self.Equity[count-1]
+                fixedincome=self.FixedIncome[count-1]*(1+self.interest*0.01)**float(float(delta.days)/365.25)
                 tot=equity+fixedincome+divi+self.regular
                 self.Net.append(tot)
                 self.Equity.append((tot)*k)
                 self.FixedIncome.append((tot)*(1-k))
                 self.AnnualReturn.append(float(100*(self.Net[count]/self.Net[count-1]-1)))
                 tax=0
-          #      print '%s\t%s\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.1f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f' \
-          #        %(str(m), str(prevDate), nifty[0], prevnifty[0], dy1[0], pe1[0], dy2[0], pe2[0], k, equity, fixedincome, divi, self.Net[count], self.Equity[count], self.FixedIncome[count], self.AnnualReturn[count])         
+                self.regular=self.regular*(1+self.regularIncrease/100)**float(float(delta.days)/365.25)
+                self.investment.append(self.regular)
+                #                print '%s\t%s\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.1f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f' \
+#                %(str(m), str(prevDate), nifty[0], prevnifty[0], dy1[0], pe1[0], dy2[0], pe2[0], k, equity, fixedincome, divi, self.Net[count], self.Equity[count], self.FixedIncome[count], self.AnnualReturn[count])
+                print str(m), str(prevDate), nifty[0], prevnifty[0], dy1[0], pe1[0], dy2[0], pe2[0], k, equity, fixedincome, divi, self.Net[count], self.Equity[count], self.FixedIncome[count], self.AnnualReturn[count]
+            
             prevDate=m
             count=count+1
         delta=self.TradingDays[count-1]-self.TradingDays[0]
